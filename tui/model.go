@@ -167,7 +167,23 @@ func (m *Model) handleCommand(input string) tea.Cmd {
 		m.history = []string{"Welcome to TavernShell! Type 'h' for help."}
 		return nil
 	default:
-		m.addHistory(fmt.Sprintf("Unknown command: %s (type 'h' for help)", cmd))
+		// Try to parse the entire input as a dice roll
+		expr, err := dice.Parse(input)
+		if err != nil {
+			// Not a valid dice roll, show unknown command error
+			m.addHistory(fmt.Sprintf("Unknown command: %s (type 'h' for help)", cmd))
+			return nil
+		}
+
+		// It's a valid dice roll! Execute it
+		result, err := dice.RollExpression(expr)
+		if err != nil {
+			m.addHistory(fmt.Sprintf("Error: %s", err))
+			return nil
+		}
+
+		// Format and display the result
+		m.addHistory(fmt.Sprintf("🎲 %s", formatDiceResult(result)))
 		return nil
 	}
 }
@@ -175,18 +191,28 @@ func (m *Model) handleCommand(input string) tea.Cmd {
 // handleRoll processes a roll command
 func (m *Model) handleRoll(args []string) {
 	if len(args) == 0 {
-		m.addHistory("Usage: r/roll <dice> (e.g., 'r 2d6' or 'roll d20')")
+		m.addHistory("Usage: r/roll <dice> (e.g., 'r 2d6+3', 'r d20!', 'r 4d6kh3')")
 		return
 	}
 
 	notation := args[0]
-	result, err := dice.RollDice(notation)
+	
+	// Parse the expression
+	expr, err := dice.Parse(notation)
 	if err != nil {
 		m.addHistory(fmt.Sprintf("Error: %s", err))
 		return
 	}
 
-	m.addHistory(fmt.Sprintf("🎲 %s", result.String()))
+	// Roll the dice
+	result, err := dice.RollExpression(expr)
+	if err != nil {
+		m.addHistory(fmt.Sprintf("Error: %s", err))
+		return
+	}
+
+	// Format and display the result with styling
+	m.addHistory(fmt.Sprintf("🎲 %s", formatDiceResult(result)))
 }
 
 // handleTimer processes a timer command
@@ -228,15 +254,21 @@ func (m *Model) handleTimer(args []string) {
 func (m *Model) handleHelp() {
 	help := []string{
 		"Available Commands:",
-		"  r/roll <dice>         - Roll dice (e.g., 'r 2d6', 'roll d20')",
+		"  r/roll <dice>         - Roll dice with modifiers, advantage, keep/drop",
 		"  t/timer <time> [name] - Start a timer (e.g., 't 5m', 't 1h concentration')",
 		"  h/help                - Show this help message",
 		"  c/clear               - Clear history",
 		"  q/quit                - Exit (or press Ctrl+C/Esc)",
 		"",
-		"Examples:",
+		"Dice Examples:",
 		"  r 2d6                 - Roll 2 six-sided dice",
-		"  roll d20              - Roll a twenty-sided die",
+		"  r d20+5               - Roll d20 and add 5",
+		"  r d20!                - Roll d20 with advantage (roll twice, keep highest)",
+		"  r 4d6kh3              - Roll 4d6, keep highest 3",
+		"  r 4d6dl1              - Roll 4d6, drop lowest 1",
+		"  r 2d8!+3              - Roll 2d8 with advantage and add 3",
+		"",
+		"Timer Examples:",
 		"  t 5m                  - Start a 5-minute timer",
 		"  t 1h concentration    - Start a 1-hour timer named 'concentration'",
 	}
@@ -450,4 +482,114 @@ func (m Model) View() string {
 	b.WriteString(helpText)
 
 	return b.String()
+}
+
+// formatDiceResult formats a dice result with styled output for dropped dice
+func formatDiceResult(r *dice.Result) string {
+	if r == nil {
+		return "<nil result>"
+	}
+
+	var b strings.Builder
+
+	// Faint style for dropped dice
+	faintStyle := lipgloss.NewStyle().Faint(true)
+
+	// Build the notation
+	notation := fmt.Sprintf("%dd%d", r.Expression.Count, r.Expression.Sides)
+	if r.Expression.Advantage {
+		notation += "!"
+	}
+	if r.Expression.Operation != nil {
+		notation += formatOperation(r.Expression.Operation)
+	}
+	if r.Expression.Modifier != 0 {
+		if r.Expression.Modifier > 0 {
+			notation += fmt.Sprintf("+%d", r.Expression.Modifier)
+		} else {
+			notation += fmt.Sprintf("%d", r.Expression.Modifier)
+		}
+	}
+
+	b.WriteString(notation)
+	b.WriteString(": [")
+
+	// Show all dice with styling for dropped ones
+	diceStrs := make([]string, len(r.Rolls))
+	for i, die := range r.Rolls {
+		if die.Kept {
+			diceStrs[i] = fmt.Sprintf("%d", die.Value)
+		} else {
+			// Use faint styling for dropped dice
+			diceStrs[i] = faintStyle.Render(fmt.Sprintf("‹%d›", die.Value))
+		}
+	}
+	b.WriteString(strings.Join(diceStrs, ", "))
+	b.WriteString("]")
+
+	// Show modifier if present
+	if r.Expression.Modifier != 0 {
+		if r.Expression.Modifier > 0 {
+			b.WriteString(fmt.Sprintf(" +%d", r.Expression.Modifier))
+		} else {
+			b.WriteString(fmt.Sprintf(" %d", r.Expression.Modifier))
+		}
+	}
+
+	// Show total
+	b.WriteString(fmt.Sprintf(" = %d", r.Total))
+
+	// Add description if there are dropped dice
+	hasDropped := false
+	for _, die := range r.Rolls {
+		if !die.Kept {
+			hasDropped = true
+			break
+		}
+	}
+
+	if hasDropped {
+		b.WriteString(" ")
+		b.WriteString(faintStyle.Render("("))
+		if r.Expression.Advantage {
+			b.WriteString(faintStyle.Render("advantage"))
+		} else if r.Expression.Operation != nil {
+			b.WriteString(faintStyle.Render(formatOperationDescription(r.Expression.Operation)))
+		}
+		b.WriteString(faintStyle.Render(")"))
+	}
+
+	return b.String()
+}
+
+// formatOperation formats an operation for display in notation
+func formatOperation(op *dice.Operation) string {
+	switch op.Type {
+	case dice.OpKeepHighest:
+		return fmt.Sprintf("kh%d", op.Count)
+	case dice.OpKeepLowest:
+		return fmt.Sprintf("kl%d", op.Count)
+	case dice.OpDropHighest:
+		return fmt.Sprintf("dh%d", op.Count)
+	case dice.OpDropLowest:
+		return fmt.Sprintf("dl%d", op.Count)
+	default:
+		return ""
+	}
+}
+
+// formatOperationDescription returns a human-readable description of an operation
+func formatOperationDescription(op *dice.Operation) string {
+	switch op.Type {
+	case dice.OpKeepHighest:
+		return fmt.Sprintf("kept highest %d", op.Count)
+	case dice.OpKeepLowest:
+		return fmt.Sprintf("kept lowest %d", op.Count)
+	case dice.OpDropHighest:
+		return fmt.Sprintf("dropped highest %d", op.Count)
+	case dice.OpDropLowest:
+		return fmt.Sprintf("dropped lowest %d", op.Count)
+	default:
+		return ""
+	}
 }

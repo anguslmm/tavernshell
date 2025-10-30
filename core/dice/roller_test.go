@@ -4,6 +4,8 @@ import (
 	"testing"
 )
 
+// TestParse tests the new Parse function that returns an Expression
+// (The comprehensive tests are in parser_test.go)
 func TestParse(t *testing.T) {
 	tests := []struct {
 		notation string
@@ -27,17 +29,17 @@ func TestParse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.notation, func(t *testing.T) {
-			count, sides, err := Parse(tt.notation)
+			expr, err := Parse(tt.notation)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Parse(%q) error = %v, wantErr %v", tt.notation, err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
-				if count != tt.count {
-					t.Errorf("Parse(%q) count = %v, want %v", tt.notation, count, tt.count)
+				if expr.Count != tt.count {
+					t.Errorf("Parse(%q) count = %v, want %v", tt.notation, expr.Count, tt.count)
 				}
-				if sides != tt.sides {
-					t.Errorf("Parse(%q) sides = %v, want %v", tt.notation, sides, tt.sides)
+				if expr.Sides != tt.sides {
+					t.Errorf("Parse(%q) sides = %v, want %v", tt.notation, expr.Sides, tt.sides)
 				}
 			}
 		})
