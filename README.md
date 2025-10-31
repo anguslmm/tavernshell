@@ -13,6 +13,8 @@ A lightweight terminal tool for D&D sessions. Roll dice, track numbers, manage t
 
 ## Installation
 
+**Download a pre-built binary** from the [releases page](https://github.com/yourusername/tavernshell/releases), or build from source:
+
 ```bash
 git clone https://github.com/yourusername/tavernshell.git
 cd tavernshell
