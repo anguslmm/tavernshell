@@ -1,5 +1,5 @@
 # Binaries
-tavernshell
+/tavernshell
 *.exe
 *.exe~
 *.dll
