@@ -24,7 +24,7 @@ func NewManager() *Manager {
 func (m *Manager) Add(name string, current, max int) *Tracker {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	tracker := NewTracker(name, current, max)
 	m.trackers[tracker.ID] = tracker
 	return tracker
@@ -34,7 +34,7 @@ func (m *Manager) Add(name string, current, max int) *Tracker {
 func (m *Manager) Get(name string) *Tracker {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	nameLower := strings.ToLower(name)
 	for _, t := range m.trackers {
 		if strings.ToLower(t.Name) == nameLower {
@@ -48,7 +48,7 @@ func (m *Manager) Get(name string) *Tracker {
 func (m *Manager) Delete(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	nameLower := strings.ToLower(name)
 	for id, t := range m.trackers {
 		if strings.ToLower(t.Name) == nameLower {
@@ -70,17 +70,17 @@ func (m *Manager) DeleteAll() {
 func (m *Manager) List() []*Tracker {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	trackers := make([]*Tracker, 0, len(m.trackers))
 	for _, t := range m.trackers {
 		trackers = append(trackers, t)
 	}
-	
+
 	// Sort by name
 	sort.Slice(trackers, func(i, j int) bool {
 		return trackers[i].Name < trackers[j].Name
 	})
-	
+
 	return trackers
 }
 
@@ -88,19 +88,19 @@ func (m *Manager) List() []*Tracker {
 func (m *Manager) GetPinned() []*Tracker {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	var pinned []*Tracker
 	for _, t := range m.trackers {
 		if t.Pinned {
 			pinned = append(pinned, t)
 		}
 	}
-	
+
 	// Sort by name
 	sort.Slice(pinned, func(i, j int) bool {
 		return pinned[i].Name < pinned[j].Name
 	})
-	
+
 	return pinned
 }
 
@@ -108,21 +108,21 @@ func (m *Manager) GetPinned() []*Tracker {
 func (m *Manager) Search(pattern string) []*Tracker {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	patternLower := strings.ToLower(pattern)
 	var results []*Tracker
-	
+
 	for _, t := range m.trackers {
 		if strings.Contains(strings.ToLower(t.Name), patternLower) {
 			results = append(results, t)
 		}
 	}
-	
+
 	// Sort by name
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Name < results[j].Name
 	})
-	
+
 	return results
 }
 
@@ -130,7 +130,7 @@ func (m *Manager) Search(pattern string) []*Tracker {
 func (m *Manager) PinAll() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	count := 0
 	for _, t := range m.trackers {
 		if !t.Pinned {
@@ -152,7 +152,7 @@ func (m *Manager) Count() int {
 func (m *Manager) PinnedCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	count := 0
 	for _, t := range m.trackers {
 		if t.Pinned {
@@ -161,4 +161,3 @@ func (m *Manager) PinnedCount() int {
 	}
 	return count
 }
-

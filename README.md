@@ -13,19 +13,28 @@ A lightweight terminal tool for D&D sessions. Roll dice, track numbers, manage t
 
 ## Installation
 
-**Download a pre-built binary** from the [releases page](https://github.com/yourusername/tavernshell/releases), or build from source:
+**Download a pre-built binary** from the [releases page](https://github.com/anguslmm/tavernshell/releases).
+
+**macOS users:** After downloading, you'll need to make it executable and remove the quarantine flag:
+```bash
+chmod +x tavernshell-darwin-arm64  # or tavernshell-darwin-amd64 for Intel Macs
+xattr -d com.apple.quarantine tavernshell-darwin-arm64
+./tavernshell-darwin-arm64
+```
+
+**Or if you have Go installed:**
 
 ```bash
-git clone https://github.com/yourusername/tavernshell.git
+go install github.com/anguslmm/tavernshell/cmd/tavernshell@latest
+```
+
+**Or build from source:**
+
+```bash
+git clone https://github.com/anguslmm/tavernshell.git
 cd tavernshell
 go build -o tavernshell ./cmd/tavernshell
 ./tavernshell
-```
-
-Or if you have Go installed:
-
-```bash
-go install github.com/yourusername/tavernshell/cmd/tavernshell@latest
 ```
 
 ## Quick Start
@@ -44,37 +53,45 @@ Run `tavernshell` to enter interactive mode, or pass commands directly:
 ### Commands
 
 **Dice Rolling:**
-- `roll 2d6` or `r 2d6` - Roll dice
-- `d20` - Roll a single d20 (shorthand)
+- `r 2d6` or `roll 2d6` - Roll dice
+- `2d6` - Just type the notation directly
+- `r d20+5` - Roll with modifiers
+- `r d20!` - Roll with advantage (keep highest)
+- `r 4d6kh3` - Roll 4d6, keep highest 3
+
+**Alarms/Timers:**
+- `a 5m` or `alarm 5m` - Start a 5-minute countdown
+- `a 30s boulder_hits` - Sometimes players need pressure
+
+**Initiative Tracking:**
+- `i start` or `i s` - Begin initiative (then enter `name initiative` for each)
+- `i next` or `i n` - Advance to next turn
+- `i add` or `i a` - Add more participants
+- `i kill Goblin` or `i k Goblin` - Mark as out of combat
+- `i end` or `i e` - End initiative
 
 **Number Trackers:**
-- `track hp 45` - Create a tracker named "hp" starting at 45
-- `hp -10` - Adjust by -10 (take damage)
-- `hp +5` - Adjust by +5 (heal)
-- `hp 45` - Set to specific value
-- `list` or `ls` - Show all trackers
-
-**Timers:**
-- `timer bless 10` - Start 10-round countdown for "bless"
-- `timer haste 10r` - Same thing (r for rounds)
-- `list` - See active timers (updates automatically)
-
-**Turn Rotation:**
-- `rotation goblin wizard fighter` - Create turn order
-- `next` or `n` - Advance to next turn
-- `list` - See current turn and upcoming
+- `t add HP 35 45` or `t a HP 35 45` - Create tracker at 35/45
+- `t set HP 40` or `t s HP 40` - Set to 40
+- `t adjust HP -10` or `t adj HP -10` - Adjust by -10
+- `t unpin HP` or `t u HP` - Pin to display
+- `t pin HP` or `t p HP` - Pin to display
+- `t list` or `t l` - Show all trackers
+- `t delete HP` or `t d HP` - Delete tracker
 
 **General:**
-- `help` or `h` - Show help
-- `quit` or `q` - Exit
+- `h` or `help` - Show help
+- `c` or `clear` - Clear history
+- `q` or `quit` - Exit
 
 ## Dice Notation
 
-Supports standard D&D dice notation:
-- `d20` - Single die
-- `2d6` - Multiple dice
-- `d20+5` - Roll with modifiers
-- `3d8-2` - Negative modifiers too
+Supports D&D dice notation with modifiers and advanced rolling:
+- `d20`, `2d6` - Basic rolls
+- `d20+5`, `3d8-2` - Modifiers
+- `d20!` - Advantage (roll twice, keep highest)
+- `4d6kh3` - Roll 4d6, keep highest 3 (for ability scores)
+- `3d6kl2` - Keep lowest 2
 
 ## Why?
 

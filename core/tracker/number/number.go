@@ -22,7 +22,7 @@ func NewTracker(name string, current, max int) *Tracker {
 		Name:    name,
 		Current: current,
 		Max:     max,
-		Pinned:  false,
+		Pinned:  true,
 	}
 }
 
@@ -58,4 +58,3 @@ func generateID() string {
 	id := atomic.AddUint64(&idCounter, 1)
 	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), id)
 }
-

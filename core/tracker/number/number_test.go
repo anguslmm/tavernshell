@@ -14,8 +14,8 @@ func TestNewTracker(t *testing.T) {
 	if tracker.Max != 50 {
 		t.Errorf("Expected max 50, got %d", tracker.Max)
 	}
-	if tracker.Pinned {
-		t.Error("Expected tracker to not be pinned by default")
+	if !tracker.Pinned {
+		t.Error("Expected tracker to be pinned by default")
 	}
 	if tracker.ID == "" {
 		t.Error("Expected non-empty ID")
@@ -50,18 +50,18 @@ func TestAdjust(t *testing.T) {
 func TestPin(t *testing.T) {
 	tracker := NewTracker("HP", 45, 50)
 	
-	if tracker.Pinned {
-		t.Error("Expected tracker to not be pinned initially")
-	}
-	
-	tracker.Pin()
 	if !tracker.Pinned {
-		t.Error("Expected tracker to be pinned after Pin()")
+		t.Error("Expected tracker to be pinned initially")
 	}
 	
 	tracker.Unpin()
 	if tracker.Pinned {
 		t.Error("Expected tracker to not be pinned after Unpin()")
+	}
+	
+	tracker.Pin()
+	if !tracker.Pinned {
+		t.Error("Expected tracker to be pinned after Pin()")
 	}
 }
 
@@ -173,12 +173,12 @@ func TestManagerList(t *testing.T) {
 
 func TestManagerGetPinned(t *testing.T) {
 	manager := NewManager()
-	hp := manager.Add("HP", 45, 50)
-	ac := manager.Add("AC", 18, 18)
-	manager.Add("Speed", 30, 30)
+	manager.Add("HP", 45, 50)
+	manager.Add("AC", 18, 18)
+	speed := manager.Add("Speed", 30, 30)
 	
-	hp.Pin()
-	ac.Pin()
+	// Unpin one so we have 2 pinned
+	speed.Unpin()
 	
 	pinned := manager.GetPinned()
 	if len(pinned) != 2 {
@@ -214,10 +214,12 @@ func TestManagerSearch(t *testing.T) {
 func TestManagerPinAll(t *testing.T) {
 	manager := NewManager()
 	hp := manager.Add("HP", 45, 50)
-	manager.Add("AC", 18, 18)
+	ac := manager.Add("AC", 18, 18)
 	manager.Add("Speed", 30, 30)
 	
-	hp.Pin()
+	// Unpin two trackers so we can test PinAll
+	hp.Unpin()
+	ac.Unpin()
 	
 	count := manager.PinAll()
 	if count != 2 {
