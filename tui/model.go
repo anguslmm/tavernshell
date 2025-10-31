@@ -2,30 +2,36 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/angusmclean/tavernshell/core/dice"
-	"github.com/angusmclean/tavernshell/core/timer"
+	"github.com/angusmclean/tavernshell/core/tracker/number"
+	"github.com/angusmclean/tavernshell/core/tracker/rotation"
+	"github.com/angusmclean/tavernshell/core/tracker/timer"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-const maxHistory = 20
+const maxHistory = 100
 
 // tickMsg is sent every second to update timers
 type tickMsg time.Time
 
 // Model represents the TUI application state
 type Model struct {
-	textInput      textinput.Model // text input component
-	history        []string        // command history/results (displayed output)
-	commandHistory []string        // command history (for up/down arrow navigation)
-	historyIndex   int             // current position in command history (-1 = not navigating)
-	timerManager   *timer.Manager  // manages active timers
-	width          int             // terminal width
-	height         int             // terminal height
+	textInput            textinput.Model   // text input component
+	history              []string          // command history/results (displayed output)
+	commandHistory       []string          // command history (for up/down arrow navigation)
+	historyIndex         int               // current position in command history (-1 = not navigating)
+	timerManager         *timer.Manager    // manages active timers
+	initiativeManager    *rotation.Manager // manages initiative/rotation tracker
+	numberTrackerManager *number.Manager   // manages number trackers
+	width                int               // terminal width
+	height               int               // terminal height
+	initiativeEntryMode  bool              // true when entering initiative participants
 }
 
 // NewModel creates a new TUI model
@@ -39,11 +45,14 @@ func NewModel() Model {
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 
 	return Model{
-		textInput:      ti,
-		history:        []string{"Welcome to TavernShell! Type 'h' for help."},
-		commandHistory: []string{},
-		historyIndex:   -1,
-		timerManager:   timer.NewManager(),
+		textInput:            ti,
+		history:              []string{"Welcome to TavernShell! Type 'h' for help."},
+		commandHistory:       []string{},
+		historyIndex:         -1,
+		timerManager:         timer.NewManager(),
+		initiativeManager:    rotation.NewManager(),
+		numberTrackerManager: number.NewManager(),
+		initiativeEntryMode:  false,
 	}
 }
 
@@ -72,9 +81,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		expired := m.timerManager.GetExpired()
 		for _, t := range expired {
 			if t.Label != "" {
-				m.addHistory(fmt.Sprintf("⏰ Timer '%s' expired (%s)", t.Label, timer.FormatDuration(t.Duration)))
+				m.addHistory(fmt.Sprintf("⏰ Alarm '%s' finished (%s)", t.Label, timer.FormatDuration(t.Duration)))
 			} else {
-				m.addHistory(fmt.Sprintf("⏰ Timer expired (%s)", timer.FormatDuration(t.Duration)))
+				m.addHistory(fmt.Sprintf("⏰ Alarm finished (%s)", timer.FormatDuration(t.Duration)))
 			}
 		}
 		// Return another tick command to keep updating
@@ -143,6 +152,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleCommand processes a command and updates history
 func (m *Model) handleCommand(input string) tea.Cmd {
+	// Special handling for initiative entry mode
+	if m.initiativeEntryMode {
+		// Check for exit commands
+		if input == "" || strings.ToLower(input) == "done" || strings.ToLower(input) == "end" {
+			m.initiativeEntryMode = false
+			m.addHistory("Initiative setup complete. Use 'i n' to advance turns.")
+			return nil
+		}
+		// Parse "name initiative" format
+		parts := strings.Fields(input)
+		if len(parts) < 2 {
+			m.addHistory("Format: <name> <initiative> (or 'done' to finish)")
+			return nil
+		}
+		initiative, err := strconv.Atoi(parts[len(parts)-1])
+		if err != nil {
+			m.addHistory("Invalid initiative value. Format: <name> <initiative>")
+			return nil
+		}
+		name := strings.Join(parts[:len(parts)-1], " ")
+		m.initiativeManager.Add(name, initiative)
+		m.addHistory(fmt.Sprintf("Added %s (initiative %d)", name, initiative))
+		return nil
+	}
+
 	parts := strings.Fields(input)
 	if len(parts) == 0 {
 		return nil
@@ -155,8 +189,14 @@ func (m *Model) handleCommand(input string) tea.Cmd {
 	case strings.HasPrefix("roll", cmd):
 		m.handleRoll(parts[1:])
 		return nil
-	case strings.HasPrefix("timer", cmd):
+	case strings.HasPrefix("alarm", cmd) || cmd == "a":
 		m.handleTimer(parts[1:])
+		return nil
+	case strings.HasPrefix("initiative", cmd) || strings.HasPrefix("init", cmd) || cmd == "i":
+		m.handleInitiative(parts[1:])
+		return nil
+	case strings.HasPrefix("tracker", cmd) || strings.HasPrefix("track", cmd) || cmd == "t":
+		m.handleTrack(parts[1:])
 		return nil
 	case strings.HasPrefix("help", cmd):
 		m.handleHelp()
@@ -196,7 +236,7 @@ func (m *Model) handleRoll(args []string) {
 	}
 
 	notation := args[0]
-	
+
 	// Parse the expression
 	expr, err := dice.Parse(notation)
 	if err != nil {
@@ -215,10 +255,10 @@ func (m *Model) handleRoll(args []string) {
 	m.addHistory(fmt.Sprintf("🎲 %s", formatDiceResult(result)))
 }
 
-// handleTimer processes a timer command
+// handleTimer processes an alarm command
 func (m *Model) handleTimer(args []string) {
 	if len(args) == 0 {
-		m.addHistory("Usage: t/timer <duration> [name] (e.g., 't 5m', 't 1h concentration')")
+		m.addHistory("Usage: a/alarm <duration> [name] (e.g., 'a 5m', 'a 1h concentration')")
 		return
 	}
 
@@ -244,9 +284,225 @@ func (m *Model) handleTimer(args []string) {
 	m.timerManager.Add(newTimer)
 
 	if label != "" {
-		m.addHistory(fmt.Sprintf("⏱  Started timer '%s' for %s", label, timer.FormatDuration(duration)))
+		m.addHistory(fmt.Sprintf("⏰ Started alarm '%s' for %s", label, timer.FormatDuration(duration)))
 	} else {
-		m.addHistory(fmt.Sprintf("⏱  Started timer for %s", timer.FormatDuration(duration)))
+		m.addHistory(fmt.Sprintf("⏰ Started alarm for %s", timer.FormatDuration(duration)))
+	}
+}
+
+// handleInitiative processes initiative commands
+func (m *Model) handleInitiative(args []string) {
+	if len(args) == 0 {
+		m.addHistory("Usage: i/init <command> - Commands: start/s, next/n, add/a, kill/k, end/e")
+		return
+	}
+
+	subCmd := strings.ToLower(args[0])
+
+	switch {
+	case strings.HasPrefix("start", subCmd) || subCmd == "s":
+		m.initiativeManager.Start()
+		m.initiativeEntryMode = true
+		m.addHistory("Starting initiative. Enter '<name> <initiative>' for each participant.")
+		m.addHistory("Type 'done' when finished.")
+
+	case strings.HasPrefix("next", subCmd) || subCmd == "n":
+		if !m.initiativeManager.IsActive() {
+			m.addHistory("No active initiative. Use 'i start' to begin.")
+			return
+		}
+		m.initiativeManager.Next()
+		tracker := m.initiativeManager.GetTracker()
+		if tracker != nil {
+			current := tracker.GetCurrent()
+			if current != nil {
+				m.addHistory(fmt.Sprintf("Turn: %s (Initiative %d) - Round %d", current.Name, current.Initiative, tracker.Round))
+			}
+		}
+
+	case strings.HasPrefix("add", subCmd) || subCmd == "a":
+		if !m.initiativeManager.IsActive() {
+			m.addHistory("No active initiative. Use 'i start' to begin.")
+			return
+		}
+		m.initiativeEntryMode = true
+		m.addHistory("Enter '<name> <initiative>' or 'done' to finish.")
+
+	case strings.HasPrefix("kill", subCmd) || subCmd == "k":
+		if !m.initiativeManager.IsActive() {
+			m.addHistory("No active initiative.")
+			return
+		}
+		if len(args) < 2 {
+			m.addHistory("Usage: i kill <name>")
+			return
+		}
+		name := strings.Join(args[1:], " ")
+		err := m.initiativeManager.MarkOut(name)
+		if err != nil {
+			m.addHistory(fmt.Sprintf("Error: %s", err))
+		} else {
+			m.addHistory(fmt.Sprintf("%s is out of combat", name))
+		}
+
+	case strings.HasPrefix("end", subCmd) || subCmd == "e":
+		m.initiativeManager.End()
+		m.addHistory("Initiative ended.")
+
+	default:
+		m.addHistory(fmt.Sprintf("Unknown initiative command: %s", subCmd))
+	}
+}
+
+// handleTrack processes tracker commands
+func (m *Model) handleTrack(args []string) {
+	if len(args) == 0 {
+		m.addHistory("Usage: t/tracker <command> - Commands: add/a, set/s, adjust/adj, list/l, pin/p, unpin/u, pinall/pa, delete/d, deleteall/da, search/f")
+		return
+	}
+
+	subCmd := strings.ToLower(args[0])
+
+	switch {
+	case strings.HasPrefix("add", subCmd) || subCmd == "a":
+		if len(args) < 4 {
+			m.addHistory("Usage: track add <name> <current> <max>")
+			return
+		}
+		name := args[1]
+		current, err1 := strconv.Atoi(args[2])
+		max, err2 := strconv.Atoi(args[3])
+		if err1 != nil || err2 != nil {
+			m.addHistory("Error: current and max must be numbers")
+			return
+		}
+		m.numberTrackerManager.Add(name, current, max)
+		m.addHistory(fmt.Sprintf("Added tracker: [%s] %d/%d", name, current, max))
+
+	case strings.HasPrefix("set", subCmd) || subCmd == "s":
+		if len(args) < 3 {
+			m.addHistory("Usage: track set <name> <value>")
+			return
+		}
+		name := args[1]
+		value, err := strconv.Atoi(args[2])
+		if err != nil {
+			m.addHistory("Error: value must be a number")
+			return
+		}
+		tracker := m.numberTrackerManager.Get(name)
+		if tracker == nil {
+			m.addHistory(fmt.Sprintf("Tracker '%s' not found", name))
+			return
+		}
+		tracker.Set(value)
+		m.addHistory(fmt.Sprintf("[%s] %d/%d", tracker.Name, tracker.Current, tracker.Max))
+
+	case strings.HasPrefix("adjust", subCmd) || subCmd == "adj":
+		if len(args) < 3 {
+			m.addHistory("Usage: track adjust <name> <delta> (e.g., '+5' or '-10')")
+			return
+		}
+		name := args[1]
+		delta, err := strconv.Atoi(args[2])
+		if err != nil {
+			m.addHistory("Error: delta must be a number (e.g., +5 or -10)")
+			return
+		}
+		tracker := m.numberTrackerManager.Get(name)
+		if tracker == nil {
+			m.addHistory(fmt.Sprintf("Tracker '%s' not found", name))
+			return
+		}
+		tracker.Adjust(delta)
+		m.addHistory(fmt.Sprintf("[%s] %d/%d", tracker.Name, tracker.Current, tracker.Max))
+
+	case strings.HasPrefix("list", subCmd) || subCmd == "l":
+		trackers := m.numberTrackerManager.List()
+		if len(trackers) == 0 {
+			m.addHistory("No trackers")
+			return
+		}
+		m.addHistory("Trackers:")
+		for _, t := range trackers {
+			pinned := ""
+			if t.Pinned {
+				pinned = " (pinned)"
+			}
+			m.addHistory(fmt.Sprintf("  [%s] %d/%d%s", t.Name, t.Current, t.Max, pinned))
+		}
+
+	case strings.HasPrefix("pin", subCmd) || subCmd == "p":
+		if len(args) < 2 {
+			m.addHistory("Usage: track pin <name>")
+			return
+		}
+		name := args[1]
+		tracker := m.numberTrackerManager.Get(name)
+		if tracker == nil {
+			m.addHistory(fmt.Sprintf("Tracker '%s' not found", name))
+			return
+		}
+		tracker.Pin()
+		m.addHistory(fmt.Sprintf("Pinned [%s]", tracker.Name))
+
+	case strings.HasPrefix("unpin", subCmd) || subCmd == "u":
+		if len(args) < 2 {
+			m.addHistory("Usage: track unpin <name>")
+			return
+		}
+		name := args[1]
+		tracker := m.numberTrackerManager.Get(name)
+		if tracker == nil {
+			m.addHistory(fmt.Sprintf("Tracker '%s' not found", name))
+			return
+		}
+		tracker.Unpin()
+		m.addHistory(fmt.Sprintf("Unpinned [%s]", tracker.Name))
+
+	case strings.HasPrefix("pinall", subCmd) || subCmd == "pa":
+		count := m.numberTrackerManager.PinAll()
+		m.addHistory(fmt.Sprintf("Pinned %d tracker(s)", count))
+
+	case strings.HasPrefix("delete", subCmd) || subCmd == "d":
+		if len(args) < 2 {
+			m.addHistory("Usage: track delete <name>")
+			return
+		}
+		name := args[1]
+		err := m.numberTrackerManager.Delete(name)
+		if err != nil {
+			m.addHistory(fmt.Sprintf("Error: %s", err))
+		} else {
+			m.addHistory(fmt.Sprintf("Deleted tracker '%s'", name))
+		}
+
+	case strings.HasPrefix("deleteall", subCmd) || subCmd == "da":
+		m.numberTrackerManager.DeleteAll()
+		m.addHistory("Deleted all trackers")
+
+	case strings.HasPrefix("search", subCmd) || subCmd == "f":
+		if len(args) < 2 {
+			m.addHistory("Usage: track search <pattern>")
+			return
+		}
+		pattern := args[1]
+		results := m.numberTrackerManager.Search(pattern)
+		if len(results) == 0 {
+			m.addHistory(fmt.Sprintf("No trackers matching '%s'", pattern))
+			return
+		}
+		m.addHistory(fmt.Sprintf("Trackers matching '%s':", pattern))
+		for _, t := range results {
+			pinned := ""
+			if t.Pinned {
+				pinned = " (pinned)"
+			}
+			m.addHistory(fmt.Sprintf("  [%s] %d/%d%s", t.Name, t.Current, t.Max, pinned))
+		}
+
+	default:
+		m.addHistory(fmt.Sprintf("Unknown track command: %s", subCmd))
 	}
 }
 
@@ -254,23 +510,42 @@ func (m *Model) handleTimer(args []string) {
 func (m *Model) handleHelp() {
 	help := []string{
 		"Available Commands:",
-		"  r/roll <dice>         - Roll dice with modifiers, advantage, keep/drop",
-		"  t/timer <time> [name] - Start a timer (e.g., 't 5m', 't 1h concentration')",
-		"  h/help                - Show this help message",
-		"  c/clear               - Clear history",
-		"  q/quit                - Exit (or press Ctrl+C/Esc)",
+		"  r/roll <dice>           - Roll dice with modifiers, advantage, keep/drop",
+		"  a/alarm <time> [name]   - Start a countdown alarm (e.g., 'a 5m', 'a 1h concentration')",
+		"  i/init <cmd>            - Initiative tracking (start/s, next/n, add/a, kill/k, end/e)",
+		"  t/tracker <cmd>         - Number trackers (add/a, set/s, adjust/adj, list/l, pin/p, etc.)",
+		"  h/help                  - Show this help message",
+		"  c/clear                 - Clear history",
+		"  q/quit                  - Exit (or press Ctrl+C/Esc)",
 		"",
 		"Dice Examples:",
-		"  r 2d6                 - Roll 2 six-sided dice",
-		"  r d20+5               - Roll d20 and add 5",
-		"  r d20!                - Roll d20 with advantage (roll twice, keep highest)",
-		"  r 4d6kh3              - Roll 4d6, keep highest 3",
-		"  r 4d6dl1              - Roll 4d6, drop lowest 1",
-		"  r 2d8!+3              - Roll 2d8 with advantage and add 3",
+		"  r 2d6                   - Roll 2 six-sided dice",
+		"  r d20+5                 - Roll d20 and add 5",
+		"  r d20!                  - Roll d20 with advantage (roll twice, keep highest)",
+		"  r 4d6kh3                - Roll 4d6, keep highest 3",
 		"",
-		"Timer Examples:",
-		"  t 5m                  - Start a 5-minute timer",
-		"  t 1h concentration    - Start a 1-hour timer named 'concentration'",
+		"Alarm Examples:",
+		"  a 5m                    - Start a 5-minute alarm",
+		"  a 1h concentration      - Start a 1-hour alarm named 'concentration'",
+		"",
+		"Initiative Examples:",
+		"  i start                 - Start initiative entry (or 'i s')",
+		"  i add                   - Add more participants (or 'i a')",
+		"  i next                  - Advance to next turn (or 'i n')",
+		"  i kill Goblin           - Mark Goblin as out of combat (or 'i k')",
+		"  i end                   - End initiative (or 'i e')",
+		"",
+		"Tracker Examples:",
+		"  t add HP 35 45          - Create HP tracker at 35/45 (or 't a HP 35 45')",
+		"  t set HP 40             - Set HP to 40 (or 't s HP 40')",
+		"  t adjust HP -10         - Subtract 10 from HP (or 't adj HP -10')",
+		"  t pin HP                - Pin HP to top display (or 't p HP')",
+		"  t unpin HP              - Unpin HP from display (or 't u HP')",
+		"  t list                  - List all trackers (or 't l')",
+		"  t pinall                - Pin all trackers (or 't pa')",
+		"  t delete HP             - Delete HP tracker (or 't d HP')",
+		"  t deleteall             - Delete all trackers (or 't da')",
+		"  t search HP             - Search for trackers (or 't f HP')",
 	}
 	for _, line := range help {
 		m.addHistory(line)
@@ -404,6 +679,162 @@ func (m Model) buildTimerBar() string {
 	return strings.Join(parts, " | ")
 }
 
+// buildTrackerBar builds a horizontal display of pinned trackers with progress bars
+func (m Model) buildTrackerBar() string {
+	pinnedTrackers := m.numberTrackerManager.GetPinned()
+	if len(pinnedTrackers) == 0 {
+		return ""
+	}
+
+	trackerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("cyan")).
+		Width(0)
+
+	numTrackers := len(pinnedTrackers)
+	if numTrackers == 0 {
+		return ""
+	}
+
+	// Calculate width per tracker slot
+	separatorWidth := 3 // " | "
+	availableWidth := m.width - ((numTrackers - 1) * separatorWidth)
+	if availableWidth < 30 {
+		availableWidth = 30 // minimum width
+	}
+	slotWidth := availableWidth / numTrackers
+
+	var parts []string
+
+	for _, tracker := range pinnedTrackers {
+		// Calculate percentage filled
+		percentFilled := 0.0
+		if tracker.Max > 0 {
+			percentFilled = (float64(tracker.Current) / float64(tracker.Max)) * 100.0
+			if percentFilled > 100.0 {
+				percentFilled = 100.0
+			}
+			if percentFilled < 0.0 {
+				percentFilled = 0.0
+			}
+		}
+
+		// Build the tracker display
+		// Format: [name] current/max [bar]
+		icon := fmt.Sprintf("[%s]", tracker.Name)
+		valueStr := fmt.Sprintf("%d/%d", tracker.Current, tracker.Max)
+
+		// Calculate available space for bar
+		// icon + space + valueStr + space + [bar]
+		baseWidth := len(icon) + 1 + len(valueStr) + 1 + 2 // +2 for []
+
+		barWidth := slotWidth - baseWidth
+		if barWidth < 10 {
+			barWidth = 10
+			// If we need more space, truncate name
+			maxNameLen := slotWidth - 2 - 1 - len(valueStr) - 1 - barWidth - 2 // -2 for [], -1 for spaces
+			if maxNameLen < 0 {
+				maxNameLen = 0
+			}
+			if len(tracker.Name) > maxNameLen {
+				var truncName string
+				if maxNameLen > 3 {
+					truncName = tracker.Name[:maxNameLen-3] + "..."
+				} else if maxNameLen > 0 {
+					truncName = tracker.Name[:maxNameLen]
+				} else {
+					truncName = ""
+				}
+				icon = fmt.Sprintf("[%s]", truncName)
+			}
+		}
+
+		// Build progress bar (empty at 0, full at max)
+		filled := int(percentFilled / 100.0 * float64(barWidth))
+		if filled < 0 {
+			filled = 0
+		}
+		if filled > barWidth {
+			filled = barWidth
+		}
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+
+		// Build the text
+		trackerText := fmt.Sprintf("%s %s [%s]", icon, valueStr, bar)
+
+		// Pad to slot width
+		textLen := len(icon) + 1 + len(valueStr) + 1 + 1 + len(bar) + 1 // spaces + [ + bar + ]
+		if textLen < slotWidth {
+			trackerText += strings.Repeat(" ", slotWidth-textLen)
+		}
+
+		parts = append(parts, trackerStyle.Render(trackerText))
+	}
+
+	return strings.Join(parts, " | ")
+}
+
+// buildInitiativePanel builds the right-side initiative panel
+func (m Model) buildInitiativePanel() []string {
+	if !m.initiativeManager.IsActive() {
+		return nil
+	}
+
+	tracker := m.initiativeManager.GetTracker()
+	if tracker == nil || !tracker.HasParticipants() {
+		return nil
+	}
+
+	var lines []string
+
+	// Round header
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("green"))
+	lines = append(lines, headerStyle.Render(fmt.Sprintf("Round %d", tracker.Round)))
+	lines = append(lines, strings.Repeat("─", 25))
+
+	// Participants
+	currentStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("yellow")).
+		Background(lipgloss.Color("236"))
+
+	activeStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("15"))
+
+	inactiveStyle := lipgloss.NewStyle().
+		Faint(true).
+		Foreground(lipgloss.Color("241"))
+
+	for i, p := range tracker.Participants {
+		var line string
+		isCurrent := (i == tracker.CurrentTurn)
+
+		// Format: "  Name (init)"
+		text := fmt.Sprintf("  %s (%d)", p.Name, p.Initiative)
+
+		// Truncate if too long
+		if len(text) > 25 {
+			text = text[:22] + "..."
+		}
+
+		if !p.IsActive {
+			// Inactive/dead
+			line = inactiveStyle.Render(text + " ✗")
+		} else if isCurrent {
+			// Current turn
+			line = currentStyle.Render("▶ " + text[2:])
+		} else {
+			// Active but not current
+			line = activeStyle.Render(text)
+		}
+
+		lines = append(lines, line)
+	}
+
+	return lines
+}
+
 // View renders the TUI
 func (m Model) View() string {
 	if m.height == 0 {
@@ -429,14 +860,32 @@ func (m Model) View() string {
 	// Build timer display (horizontal)
 	timerBar := m.buildTimerBar()
 
+	// Build tracker bar
+	trackerBar := m.buildTrackerBar()
+
+	// Build initiative panel
+	initiativePanel := m.buildInitiativePanel()
+
+	// Calculate widths for initiative panel
+	initiativePanelWidth := 28
+	hasInitiative := len(initiativePanel) > 0
+	mainWidth := m.width
+	if hasInitiative {
+		mainWidth = m.width - initiativePanelWidth - 1 // -1 for separator
+	}
+
 	// Build the input line with help text
 	inputLine := promptStyle.Render("➤ ") + m.textInput.View()
 	helpText := helpStyle.Render("  Ctrl+C or 'q' to quit")
 
 	// Calculate available height for history
-	// -1 for title, -1 for separator, -1 for timer bar (always shown), -1 for blank line, -1 for input, -1 for help
-	timerLines := 2 // timer bar + blank line (always shown)
-	availableHeight := m.height - 5 - timerLines
+	headerLines := 2       // title + separator
+	timerTrackerLines := 2 // timer bar + blank line
+	if trackerBar != "" {
+		timerTrackerLines += 4 // blank line + separator + tracker bar + separator
+	}
+	footerLines := 2 // input + help
+	availableHeight := m.height - headerLines - timerTrackerLines - footerLines
 
 	// Get the history lines to display (most recent at bottom)
 	var historyLines []string
@@ -459,24 +908,86 @@ func (m Model) View() string {
 
 	// Timer bar (always shown)
 	b.WriteString(timerBar)
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
-	// Calculate padding to push history to bottom (right above input)
-	currentLines := 2 + timerLines + len(historyLines) // title + separator + timers + history
-	paddingLines := m.height - currentLines - 2        // -2 for input and help
-
-	// Add padding at top to push history down
-	if paddingLines > 0 {
-		b.WriteString(strings.Repeat("\n", paddingLines))
+	// Tracker bar (if any pinned trackers)
+	if trackerBar != "" {
+		b.WriteString("\n")
+		b.WriteString(strings.Repeat("─", m.width))
+		b.WriteString("\n")
+		b.WriteString(trackerBar)
+		b.WriteString("\n")
+		b.WriteString(strings.Repeat("─", m.width))
+		b.WriteString("\n")
+	} else {
+		b.WriteString("\n")
 	}
 
-	// History area (appears right above input, growing upward)
-	if len(historyLines) > 0 {
-		b.WriteString(strings.Join(historyLines, "\n"))
+	// Main content area - split if initiative is active
+	if hasInitiative {
+		// Calculate padding to push history to bottom
+		currentLines := headerLines + timerTrackerLines + len(historyLines)
+		paddingLines := m.height - currentLines - footerLines
+
+		// Content lines to display
+		contentLines := make([]string, availableHeight)
+
+		// Add padding
+		for i := 0; i < paddingLines && i < availableHeight; i++ {
+			contentLines[i] = ""
+		}
+
+		// Add history
+		historyStart := paddingLines
+		if historyStart < 0 {
+			historyStart = 0
+		}
+		for i, line := range historyLines {
+			idx := historyStart + i
+			if idx < availableHeight {
+				contentLines[idx] = line
+			}
+		}
+
+		// Combine main content with initiative panel
+		for i := 0; i < availableHeight; i++ {
+			mainLine := contentLines[i]
+			// Pad or truncate main line to mainWidth
+			if len(mainLine) > mainWidth {
+				mainLine = mainLine[:mainWidth]
+			} else if len(mainLine) < mainWidth {
+				mainLine += strings.Repeat(" ", mainWidth-len(mainLine))
+			}
+
+			// Get initiative panel line if available
+			initLine := ""
+			if i < len(initiativePanel) {
+				initLine = initiativePanel[i]
+			}
+
+			b.WriteString(mainLine)
+			b.WriteString(" ")
+			b.WriteString(initLine)
+			b.WriteString("\n")
+		}
+	} else {
+		// No initiative - simple layout
+		currentLines := headerLines + timerTrackerLines + len(historyLines)
+		paddingLines := m.height - currentLines - footerLines
+
+		// Add padding at top to push history down
+		if paddingLines > 0 {
+			b.WriteString(strings.Repeat("\n", paddingLines))
+		}
+
+		// History area (appears right above input, growing upward)
+		if len(historyLines) > 0 {
+			b.WriteString(strings.Join(historyLines, "\n"))
+			b.WriteString("\n")
+		}
 	}
 
 	// Input line at bottom
-	b.WriteString("\n")
 	b.WriteString(inputLine)
 	b.WriteString("\n")
 	b.WriteString(helpText)

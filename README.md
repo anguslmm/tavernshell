@@ -1,109 +1,93 @@
-# TavernShell ⚔️
+# TavernShell
 
-A fast, minimal D&D tools CLI for DMs and players. Built with Go for speed and portability.
+A lightweight terminal tool for D&D sessions. Roll dice, track numbers, manage timers—all without leaving your terminal.
 
 ## Features
 
-- 🎲 **Fast Dice Rolling** - Quick dice rolls with fair RNG (crypto/rand)
-- 🖥️ **Interactive TUI** - Beautiful terminal interface powered by Bubble Tea
-- ⚡ **Single Command Mode** - Run commands directly without entering the shell
-- 🔤 **Smart Shortcuts** - Single-letter commands (e.g., `r` for roll)
+- Dice rolling with standard notation (2d6, d20, etc.)
+- Number trackers for HP, spell slots, or anything else
+- Countdown timers for spell durations and effects
+- Initiative/turn rotation tracking
+- Interactive TUI or single-command mode
+- Uses crypto/rand for fair dice rolls
 
 ## Installation
 
-### Build from Source
-
 ```bash
-# Clone the repository
-git clone https://github.com/angusmclean/tavernshell.git
+git clone https://github.com/yourusername/tavernshell.git
 cd tavernshell
-
-# Build
 go build -o tavernshell ./cmd/tavernshell
-
-# Run
 ./tavernshell
 ```
 
-## Usage
-
-### Interactive Mode
-
-Run without arguments to enter interactive mode:
+Or if you have Go installed:
 
 ```bash
-./tavernshell
+go install github.com/yourusername/tavernshell/cmd/tavernshell@latest
 ```
 
-Then use commands like:
-- `r 2d6` - Roll 2 six-sided dice
-- `roll d20` - Roll a d20
-- `h` - Show help
-- `q` - Quit
+## Quick Start
 
-### Single Command Mode
-
-Execute commands directly:
+Run `tavernshell` to enter interactive mode, or pass commands directly:
 
 ```bash
+# Interactive mode
+./tavernshell
+
+# Single commands
 ./tavernshell roll 2d6
-./tavernshell r d20
+./tavernshell r d20+5
 ```
+
+### Commands
+
+**Dice Rolling:**
+- `roll 2d6` or `r 2d6` - Roll dice
+- `d20` - Roll a single d20 (shorthand)
+
+**Number Trackers:**
+- `track hp 45` - Create a tracker named "hp" starting at 45
+- `hp -10` - Adjust by -10 (take damage)
+- `hp +5` - Adjust by +5 (heal)
+- `hp 45` - Set to specific value
+- `list` or `ls` - Show all trackers
+
+**Timers:**
+- `timer bless 10` - Start 10-round countdown for "bless"
+- `timer haste 10r` - Same thing (r for rounds)
+- `list` - See active timers (updates automatically)
+
+**Turn Rotation:**
+- `rotation goblin wizard fighter` - Create turn order
+- `next` or `n` - Advance to next turn
+- `list` - See current turn and upcoming
+
+**General:**
+- `help` or `h` - Show help
+- `quit` or `q` - Exit
 
 ## Dice Notation
 
-Currently supports simple dice notation:
-- `d20` - Roll one 20-sided die
-- `2d6` - Roll two 6-sided dice
-- `4d8` - Roll four 8-sided dice
+Supports standard D&D dice notation:
+- `d20` - Single die
+- `2d6` - Multiple dice
+- `d20+5` - Roll with modifiers
+- `3d8-2` - Negative modifiers too
 
-More advanced notation (modifiers, advantage/disadvantage) coming soon!
+## Why?
 
-## Architecture
-
-The project is designed with modularity in mind:
-
-- `core/` - Business logic (dice rolling, etc.) - UI-agnostic
-- `tui/` - Bubble Tea TUI implementation
-- `cmd/` - CLI entry points
-
-This separation makes it easy to build a web API or desktop app in the future.
-
-## Roadmap
-
-- [x] Basic dice rolling (XdY notation)
-- [x] Interactive TUI
-- [x] Single command mode
-- [ ] Advanced dice notation (modifiers, e.g., 2d6+3)
-- [ ] Initiative tracker
-- [ ] Counters and trackers
-- [ ] Advantage/disadvantage for d20
-- [ ] State persistence
-- [ ] Web API
-- [ ] Desktop app
+I wanted a fast way to roll dice and track things during D&D sessions without alt-tabbing to a browser or phone. Plus Go compiles to a single binary, so it's easy to share.
 
 ## Development
 
-### Run Tests
-
+Run tests:
 ```bash
 go test ./...
 ```
 
-### Project Structure
-
-```
-tavernshell/
-├── cmd/
-│   └── tavernshell/     # Main entry point
-├── core/
-│   └── dice/            # Dice rolling logic
-├── tui/                 # Terminal UI
-├── go.mod
-└── README.md
-```
+The codebase is split into `core/` (business logic) and `tui/` (terminal interface), so you could build a web version or GUI on top of the same core if you wanted to.
 
 ## License
 
-MIT
+MIT - see LICENSE file
 
