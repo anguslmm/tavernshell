@@ -1,4 +1,4 @@
-module github.com/angusmclean/tavernshell
+module github.com/anguslmm/tavernshell
 
 go 1.24.1
 

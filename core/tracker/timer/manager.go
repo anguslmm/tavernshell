@@ -96,3 +96,4 @@ func (m *Manager) Clear() {
 	m.timers = make(map[string]*Timer)
 }
 
+

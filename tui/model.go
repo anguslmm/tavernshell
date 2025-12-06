@@ -952,11 +952,15 @@ func (m Model) View() string {
 		// Combine main content with initiative panel
 		for i := 0; i < availableHeight; i++ {
 			mainLine := contentLines[i]
-			// Pad or truncate main line to mainWidth
-			if len(mainLine) > mainWidth {
-				mainLine = mainLine[:mainWidth]
-			} else if len(mainLine) < mainWidth {
-				mainLine += strings.Repeat(" ", mainWidth-len(mainLine))
+			// Pad or truncate main line to mainWidth using visual width
+			visualWidth := lipgloss.Width(mainLine)
+			if visualWidth > mainWidth {
+				// Truncate - this is complex with ANSI codes, so just strip and re-pad
+				mainLine = mainLine[:mainWidth] + "…"
+				visualWidth = lipgloss.Width(mainLine)
+			}
+			if visualWidth < mainWidth {
+				mainLine += strings.Repeat(" ", mainWidth-visualWidth)
 			}
 
 			// Get initiative panel line if available
