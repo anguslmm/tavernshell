@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/angusmclean/tavernshell/core/dice"
-	"github.com/angusmclean/tavernshell/tui"
+	"github.com/anguslmm/tavernshell/core/dice"
+	"github.com/anguslmm/tavernshell/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
